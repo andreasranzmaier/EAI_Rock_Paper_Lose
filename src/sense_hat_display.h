@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 
+// Drives the Sense HAT 8x8 LED matrix via its framebuffer (RGB565).
 class SenseHatDisplay {
  public:
   SenseHatDisplay();
@@ -11,9 +12,19 @@ class SenseHatDisplay {
 
   bool available() const { return available_; }
   const std::string& error_message() const { return error_message_; }
-  bool ShowGesture(int class_index, float confidence);
-  void ShowErrorMarker();
+
   void Clear();
+  
+  void Fill(std::uint8_t red, std::uint8_t green, std::uint8_t blue);
+
+  // gesture_index: 0=rock, 1=paper, 2=scissors.
+  void ShowGesture(int gesture_index, std::uint8_t red, std::uint8_t green, std::uint8_t blue);
+
+  // digit: 1..3 (for the round countdown).
+  void ShowDigit(int digit, std::uint8_t red, std::uint8_t green, std::uint8_t blue);
+
+  // Whole screen green (player won) or red (player lost).
+  void ShowResult(bool player_won);
 
  private:
   bool OpenFramebuffer();

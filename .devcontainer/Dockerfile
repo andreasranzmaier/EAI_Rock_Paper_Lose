@@ -45,6 +45,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopencv-dev \
  && rm -rf /var/lib/apt/lists/*
 
+# Stage arm64 libjpeg into the aarch64 sysroot so the cross-compiler can link
+# the RGB->JPEG encoder used by collect_data. (Headers jpeglib.h/jmorecfg.h/
+# jerror.h live in /usr/include, the arch-specific jconfig.h in the multiarch
+# include dir; the shared lib in the multiarch lib dir.)
+RUN set -eux; \
+    mkdir -p /tmp/jpeg-arm64/root /usr/aarch64-linux-gnu/include /usr/aarch64-linux-gnu/lib; \
+    cd /tmp/jpeg-arm64; \
+    apt-get update; \
+    apt-get download libjpeg-turbo8:arm64 libjpeg-turbo8-dev:arm64; \
+    for deb in *.deb; do dpkg-deb -x "$deb" /tmp/jpeg-arm64/root; done; \
+    cp -a /tmp/jpeg-arm64/root/usr/include/*.h /usr/aarch64-linux-gnu/include/; \
+    cp -a /tmp/jpeg-arm64/root/usr/include/aarch64-linux-gnu/*.h /usr/aarch64-linux-gnu/include/; \
+    cp -a /tmp/jpeg-arm64/root/usr/lib/aarch64-linux-gnu/libjpeg.so* /usr/aarch64-linux-gnu/lib/; \
+    rm -rf /tmp/jpeg-arm64 /var/lib/apt/lists/*
+
 RUN python3 -m venv /opt/venv
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"

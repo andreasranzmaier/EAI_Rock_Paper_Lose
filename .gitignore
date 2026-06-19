@@ -1,6 +1,8 @@
 # Captured training images and dataset artifacts
 data/
 *.bmp
+*.jpg
+*.jpeg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
