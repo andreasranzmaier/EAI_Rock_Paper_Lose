@@ -1,6 +1,7 @@
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 from picamera2 import Picamera2 # pyright: ignore[reportMissingImports]
 
 if len(sys.argv) < 2:
@@ -10,7 +11,10 @@ if len(sys.argv) < 2:
 
 label = sys.argv[1]
 
+Path("images/raw").mkdir(parents=True, exist_ok=True)
+
 picam2 = Picamera2()
+picam2.options['quality'] = 80  # values from 0 to 100
 capture_config = picam2.create_still_configuration()
 
 picam2.configure(capture_config)
@@ -24,7 +28,7 @@ try:
         filename = f"images/raw/{timestamp}-{label}.jpeg"
         picam2.capture_file(filename)
         print(f"Saved {filename}")
-        time.sleep(0.2)  # 5 frames per second
+        time.sleep(2)  # 
 except KeyboardInterrupt:
     print("\nStopped.")
 finally:

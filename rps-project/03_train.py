@@ -6,21 +6,24 @@ import tensorflow as tf
 
 PROCESSED_DIR = Path("images/processed")
 
-# Load images and extract labels from filenames
-files = sorted(PROCESSED_DIR.glob("*.jpeg"))
+files = sorted(list(PROCESSED_DIR.glob("*.jpeg")) + list(PROCESSED_DIR.glob("*.jpg")))
 classes = sorted(set(p.stem.split("-")[-1] for p in files))
 label_map = {c: i for i, c in enumerate(classes)}
 print(f"Classes: {classes}  |  Images: {len(files)}")
 
-X = np.array([cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) for p in files], dtype=np.float32) / 255.0
+# Raw 0-255 values — the Rescaling layer in the model normalises them,
+# matching what tflite_classifier.cpp feeds at inference time.
+X = np.array([cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) for p in files], dtype=np.float32)
 X = X[..., np.newaxis]  # (N, 72, 96, 1)
 y = np.array([label_map[p.stem.split("-")[-1]] for p in files])
 
 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
 
-# CNN
+# Rescaling(1/255) is baked into the model so the C++ classifier can feed raw
+# 0-255 pixel values and the model normalises them internally.
 model = tf.keras.Sequential([
-    tf.keras.layers.Conv2D(16, 3, activation="relu", input_shape=(72, 96, 1)),
+    tf.keras.layers.Rescaling(1.0 / 255, input_shape=(72, 96, 1)),
+    tf.keras.layers.Conv2D(16, 3, activation="relu"),
     tf.keras.layers.MaxPooling2D(),
     tf.keras.layers.Conv2D(32, 3, activation="relu"),
     tf.keras.layers.MaxPooling2D(),
@@ -37,8 +40,16 @@ early_stop = tf.keras.callbacks.EarlyStopping(patience=5, restore_best_weights=T
 model.fit(X_train, y_train, epochs=50, batch_size=16,
           validation_data=(X_val, y_val), callbacks=[early_stop])
 
-# Export to TFLite + label map
 Path("model").mkdir(exist_ok=True)
-Path("model/model.tflite").write_bytes(tf.lite.TFLiteConverter.from_keras_model(model).convert())
+model.save("model/model.keras")
 Path("model/labels.txt").write_text("\n".join(classes))
-print("Saved model/model.tflite and model/labels.txt")
+
+# TF 2.16's MLIR-based TFLite converter crashes on Keras 3 Sequential models
+# that include a Rescaling layer (LLVM "missing attribute 'value'" abort).
+# Round-trip through SavedModel to avoid the buggy direct path.
+saved_dir = Path("model/saved_model")
+model.export(str(saved_dir))
+Path("model/model.tflite").write_bytes(
+    tf.lite.TFLiteConverter.from_saved_model(str(saved_dir)).convert()
+)
+print("Saved model/model.tflite, model/labels.txt, model/model.keras")

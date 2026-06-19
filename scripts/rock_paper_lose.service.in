@@ -1,0 +1,17 @@
+[Unit]
+Description=Rock-Paper-Lose embedded game
+After=local-fs.target
+# No network dependency: the game has to run whether the Pi is online or not.
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__INSTALL_DIR__
+ExecStart=__INSTALL_DIR__/__BIN_NAME__ --model __INSTALL_DIR__/__MODEL_NAME__ --labels __INSTALL_DIR__/__LABELS_NAME__
+Restart=on-failure
+RestartSec=3
+# Camera (libcamera) and Sense HAT framebuffer typically require these groups.
+SupplementaryGroups=video render input
+
+[Install]
+WantedBy=multi-user.target

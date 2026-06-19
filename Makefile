@@ -27,7 +27,7 @@ CPP_SOURCES := $(shell find src -type f \( -name '*.cpp' -o -name '*.h' \) 2>/de
 
 COLLECT_BINARY := $(BUILD_DIR)/collect_data
 
-.PHONY: all train tflite build collect deploy run perf perf-report provision-pi console clean
+.PHONY: all train tflite build collect deploy run perf perf-report provision-pi console capture-push capture-pull clean
 
 all: deploy
 
@@ -95,6 +95,14 @@ provision-pi:
 
 console:
 	bash scripts/open_pi_console.sh
+
+# Sync the Python capture/process/train scripts to the Pi.
+capture-push:
+	rsync -avz --mkpath "rps-project copy/" "$(PI_USER)@$(PI_HOST):$(PI_REMOTE_DIR)/"
+
+# Pull captured raw images back from the Pi for local processing and training.
+capture-pull:
+	rsync -avz "$(PI_USER)@$(PI_HOST):$(PI_REMOTE_DIR)/images/raw/" "rps-project copy/images/raw/"
 
 clean:
 	rm -rf "$(BUILD_DIR)" "$(ARTIFACT_DIR)" "third_party/tensorflow-src" "third_party/litert-build" "third_party/litert"

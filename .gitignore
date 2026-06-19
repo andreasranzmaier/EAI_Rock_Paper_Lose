@@ -4,6 +4,12 @@ data/
 *.jpg
 *.jpeg
 
+# Vendored TensorFlow source tree (fetched by `make tflite`, ~600 MB).
+third_party/
+
+# macOS Finder droppings
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

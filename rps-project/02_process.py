@@ -5,10 +5,10 @@ RAW_DIR = Path("images/raw")
 PROCESSED_DIR = Path("images/processed")
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-
 files = list(RAW_DIR.glob("*.jpeg")) + list(RAW_DIR.glob("*.jpg"))
 print(f"Processing {len(files)} images...")
+
+clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
 for src in files:
     img = cv2.imread(str(src), cv2.IMREAD_GRAYSCALE)

@@ -6,9 +6,13 @@
 #include <string>
 #include <vector>
 
+// TF 2.16+: tflite::FlatBufferModel and tflite::Interpreter are using-aliases
+// for types in tflite::impl, so forward-declare those instead of the aliases.
 namespace tflite {
+namespace impl {
 class FlatBufferModel;
 class Interpreter;
+}  // namespace impl
 }  // namespace tflite
 
 // Result of a single classification.
@@ -46,8 +50,8 @@ class TfliteClassifier {
   ClassifyResult Classify(const std::uint8_t* rgb, std::size_t rgb_size);
 
  private:
-  std::unique_ptr<tflite::FlatBufferModel> model_;
-  std::unique_ptr<tflite::Interpreter> interpreter_;
+  std::unique_ptr<tflite::impl::FlatBufferModel> model_;
+  std::unique_ptr<tflite::impl::Interpreter> interpreter_;
 
   bool ok_ = false;
   std::string error_;
