@@ -89,15 +89,14 @@ ClassifyResult TfliteClassifier::Classify(const std::uint8_t* rgb,
   const int in_zp = in->params.zero_point;
 
   if (in_c_ == 1) {
-    // Grayscale model: RGB → gray → CLAHE, matching 02_process_v2.py.
-    // (v1 also Otsu-thresholded to a binary image — dropped here for v2 so
-    // the model gets the gradient/texture information.)
+    // Grayscale model: RGB → gray → CLAHE → Otsu binary, matching 02_process.py.
     static auto clahe = cv::createCLAHE(2.0, cv::Size(8, 8));
     cv::Mat frame(in_h_, in_w_, CV_8UC3, const_cast<std::uint8_t*>(rgb));
-    cv::Mat gray, equalized;
+    cv::Mat gray, equalized, binary;
     cv::cvtColor(frame, gray, cv::COLOR_RGB2GRAY);
     clahe->apply(gray, equalized);
-    const std::uint8_t* thresh_data = equalized.ptr<std::uint8_t>();
+    cv::threshold(equalized, binary, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+    const std::uint8_t* thresh_data = binary.ptr<std::uint8_t>();
 
     // Optional: dump the post-CLAHE/Otsu input as PGM to inspect what the
     // model is actually seeing. Enable with: DUMP_FRAMES_DIR=/tmp/dumps ./...

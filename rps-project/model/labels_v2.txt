@@ -1,4 +1,0 @@
-garbage
-paper
-rock
-scissors

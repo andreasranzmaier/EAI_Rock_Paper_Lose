@@ -46,10 +46,12 @@ Path("model/labels.txt").write_text("\n".join(classes))
 
 # TF 2.16's MLIR-based TFLite converter crashes on Keras 3 Sequential models
 # that include a Rescaling layer (LLVM "missing attribute 'value'" abort).
-# Round-trip through SavedModel to avoid the buggy direct path.
-saved_dir = Path("model/saved_model")
-model.export(str(saved_dir))
-Path("model/model.tflite").write_bytes(
-    tf.lite.TFLiteConverter.from_saved_model(str(saved_dir)).convert()
-)
+# Round-trip through SavedModel to avoid the buggy direct path, then clean
+# up the intermediate so the model/ folder stays small.
+import tempfile
+with tempfile.TemporaryDirectory() as saved_dir:
+    model.export(saved_dir)
+    Path("model/model.tflite").write_bytes(
+        tf.lite.TFLiteConverter.from_saved_model(saved_dir).convert()
+    )
 print("Saved model/model.tflite, model/labels.txt, model/model.keras")
