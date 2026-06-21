@@ -39,21 +39,6 @@ target_link_libraries(rpi_camera_capture PUBLIC Threads::Threads)
 target_compile_options(rpi_camera_capture PRIVATE -Wall -Wextra -Wpedantic)
 
 # ---------------------------------------------------------------------------
-# Data-collection tool: saves camera frames to data/<class>/ as BMPs.
-# Camera only - no model required, so this builds even before `make tflite`.
-# ---------------------------------------------------------------------------
-# libjpeg is needed only for RGB->JPEG capture; the inference app does not use
-# it. Scope it here so the app can still build/deploy without libjpeg present.
-find_package(JPEG)
-if(JPEG_FOUND)
-  add_executable(collect_data src/tools/collect_data.cpp)
-  target_link_libraries(collect_data PRIVATE rpi_camera_capture JPEG::JPEG)
-  target_compile_options(collect_data PRIVATE -Wall -Wextra -Wpedantic)
-else()
-  message(STATUS "libjpeg not found; skipping collect_data (data-capture tool).")
-endif()
-
-# ---------------------------------------------------------------------------
 # Inference application (Sense HAT display + TFLite). Built only when the
 # TensorFlow Lite source tree is present. Run `make tflite` to fetch it.
 # ---------------------------------------------------------------------------

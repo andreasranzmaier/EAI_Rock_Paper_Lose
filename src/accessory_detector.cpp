@@ -1,15 +1,21 @@
+// Implementation of the HSV-range accessory detector. See accessory_detector.h
+// for the conceptual overview - the short version is: count pixels inside a
+// configurable HSV range, calibrate a baseline from the first N frames, then
+// flag a frame as "accessory present" when its in-range count comfortably
+// exceeds the baseline.
+
 #include "accessory_detector.h"
 
-#include <algorithm>
 #include <cctype>
 #include <fstream>
-#include <sstream>
 #include <string>
 
 #include <opencv2/imgproc.hpp>
 
 namespace {
 
+// In-place would be nicer but the config keys come in once at startup, so
+// allocating a trimmed copy keeps the parser simple.
 std::string Trim(const std::string& s) {
   std::size_t a = 0;
   while (a < s.size() && std::isspace(static_cast<unsigned char>(s[a]))) ++a;
@@ -18,6 +24,9 @@ std::string Trim(const std::string& s) {
   return s.substr(a, b - a);
 }
 
+// Parses an int that must consume the whole string. We reject trailing junk
+// (`"40 px"` or `"42abc"`) so that a typo in the config file is loud rather
+// than silently truncated by std::stoi.
 bool ParseInt(const std::string& s, int* out) {
   try {
     std::size_t end = 0;
@@ -44,6 +53,10 @@ bool ParseFloat(const std::string& s, float* out) {
 
 }  // namespace
 
+// Minimal `key = value` config reader. Each non-blank, non-`#` line must
+// match one of the known keys; unknown keys / malformed values fail the load
+// rather than being silently dropped, so misconfiguration shows up at startup
+// instead of as mysteriously-wrong rigging during play.
 bool AccessoryDetector::LoadConfig(const std::string& path, std::string* error) {
   std::ifstream in(path);
   if (!in) {
@@ -55,6 +68,8 @@ bool AccessoryDetector::LoadConfig(const std::string& path, std::string* error) 
   while (std::getline(in, line)) {
     ++line_no;
     const std::string trimmed = Trim(line);
+    // Skip blanks and full-line comments. (We don't bother with trailing
+    // comments after a value - keep the file format dumb.)
     if (trimmed.empty() || trimmed[0] == '#') continue;
     const auto eq = trimmed.find('=');
     if (eq == std::string::npos) {
@@ -85,10 +100,19 @@ bool AccessoryDetector::LoadConfig(const std::string& path, std::string* error) 
   return true;
 }
 
+// Core HSV-mask + pixel-count primitive shared by Calibrate() and Check().
+// Wrapping the caller's RGB buffer in a cv::Mat is zero-copy (we cast away
+// const because cv::Mat's API demands a non-const pointer, but we never write
+// through it).
 int AccessoryDetector::CountInRange(const std::uint8_t* rgb, int width, int height) const {
   if (rgb == nullptr || width <= 0 || height <= 0) return 0;
   cv::Mat frame(height, width, CV_8UC3, const_cast<std::uint8_t*>(rgb));
   cv::Mat hsv, mask;
+  // Convert from the camera's RGB888 to HSV so the hue/saturation bounds
+  // mean what they say. Pixel ordering matters: the colleague's Python uses
+  // BGR2HSV against picamera2 buffers (which are actually BGR), so the
+  // numeric hue values from that setup do not transfer 1:1 here - re-tune
+  // the bounds in accessory.conf if importing them.
   cv::cvtColor(frame, hsv, cv::COLOR_RGB2HSV);
   cv::inRange(hsv,
               cv::Scalar(config_.hue_min, config_.sat_min, config_.val_min),
@@ -97,15 +121,23 @@ int AccessoryDetector::CountInRange(const std::uint8_t* rgb, int width, int heig
   return cv::countNonZero(mask);
 }
 
+// Pull one calibration sample. Idempotent once calibrated() so calling it
+// again after the buffer is full has no effect; the camera-polling loop in
+// main.cpp keeps invoking until calibrated() flips to true.
 void AccessoryDetector::Calibrate(const std::uint8_t* rgb, int width, int height) {
   if (calibrated()) return;
   calibration_sum_ += CountInRange(rgb, width, height);
   ++calibration_count_;
   if (calibrated()) {
+    // Final sample just landed - lock in the average so Check() has a
+    // baseline to compare against.
     baseline_ = static_cast<float>(calibration_sum_ / calibration_count_);
   }
 }
 
+// Per-frame query: count in-range pixels, then ask "is that comfortably
+// above what we saw with an empty scene?". Returns present=false until
+// calibration completes so accidental early calls cannot trigger the rigging.
 AccessoryDetector::CheckResult
 AccessoryDetector::Check(const std::uint8_t* rgb, int width, int height) const {
   CheckResult r;

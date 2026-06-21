@@ -52,6 +52,11 @@ std::string Trim(std::string value) {
   return value;
 }
 
+// Locate the Sense HAT's framebuffer node. We can't hard-code /dev/fb1
+// because its index depends on what else the kernel registered first (e.g.
+// HDMI on fb0). Iterate /sys/class/graphics/fb*/name and match the magic
+// string the Sense HAT driver advertises; return the corresponding /dev/fbN.
+// 16 is just "more than the Pi will ever have" - avoids needing readdir.
 std::string FindSenseHatFramebufferPath() {
   for (int i = 0; i < 16; ++i) {
     std::ostringstream sysfs_path;
@@ -85,6 +90,13 @@ SenseHatDisplay::~SenseHatDisplay() {
   }
 }
 
+// Sets up framebuffer access for the LED matrix. We mmap rather than
+// write() because: (a) it's an 8x8 matrix - 128 bytes - and mmap lets us
+// poke individual pixels without copying, and (b) the framebuffer driver
+// flushes the matrix from the mapped page on its own schedule, no syscall
+// per pixel needed. Returns false (with error_message_ set) if anything is
+// off - missing HAT, wrong driver, unexpected pixel format - so the game
+// can gracefully run headless on a dev machine.
 bool SenseHatDisplay::OpenFramebuffer() {
   const std::string framebuffer_path = FindSenseHatFramebufferPath();
   if (framebuffer_path.empty()) {
@@ -98,6 +110,9 @@ bool SenseHatDisplay::OpenFramebuffer() {
     return false;
   }
 
+  // Query the kernel for the framebuffer's geometry / format so we can mmap
+  // it and write pixels at the right offsets. fix = fixed (line_length etc),
+  // var = variable (resolution, bits-per-pixel).
   fb_fix_screeninfo fix_info{};
   fb_var_screeninfo var_info{};
   if (ioctl(file_descriptor_, FBIOGET_FSCREENINFO, &fix_info) != 0 ||
@@ -106,11 +121,16 @@ bool SenseHatDisplay::OpenFramebuffer() {
     return false;
   }
 
+  // The Sense HAT advertises RGB565 (5 bits red, 6 green, 5 blue = 16 bpp).
+  // If we ever see a different format the rest of this file's writes would
+  // garble the LEDs, so refuse to start.
   if (var_info.bits_per_pixel != 16U) {
     error_message_ = "Unexpected Sense HAT framebuffer format (expected RGB565).";
     return false;
   }
 
+  // line_length is bytes-per-row including any driver padding (not always
+  // width*bpp). Always use it when stepping rows or the pattern will skew.
   mapping_size_ = static_cast<std::size_t>(fix_info.line_length) *
                   static_cast<std::size_t>(var_info.yres_virtual);
   line_length_ = static_cast<int>(fix_info.line_length);
@@ -125,6 +145,9 @@ bool SenseHatDisplay::OpenFramebuffer() {
   return true;
 }
 
+// Pack 24-bit RGB into the framebuffer's 16-bit RGB565 word: keep the top
+// 5 bits of red / 6 of green / 5 of blue. (Green gets the extra bit because
+// human vision is most sensitive to it.)
 std::uint16_t SenseHatDisplay::MakeRgb565(std::uint8_t red, std::uint8_t green, std::uint8_t blue) const {
   const std::uint16_t r = static_cast<std::uint16_t>((red >> 3U) & 0x1FU);
   const std::uint16_t g = static_cast<std::uint16_t>((green >> 2U) & 0x3FU);
@@ -132,13 +155,20 @@ std::uint16_t SenseHatDisplay::MakeRgb565(std::uint8_t red, std::uint8_t green, 
   return static_cast<std::uint16_t>((r << 11U) | (g << 5U) | b);
 }
 
+// Blits an 8x8 bitmap (one byte per row, MSB = leftmost pixel) into the
+// framebuffer: set pixels render in `color`, clear pixels render black so
+// the previous frame is fully overwritten.
 void SenseHatDisplay::WritePattern(const std::uint8_t pattern[8], std::uint16_t color) {
   if (!available_ || framebuffer_ == nullptr) return;
 
   constexpr std::uint16_t background = 0x0000U;
   for (int y = 0; y < 8; ++y) {
     for (int x = 0; x < 8; ++x) {
+      // Bit 7 of each row byte is the leftmost pixel (x=0), so shift by
+      // (7 - x) to pick the right one out.
       const bool on = (pattern[y] & (1U << (7 - x))) != 0U;
+      // line_length_ is bytes-per-row (see OpenFramebuffer); x*2 because
+      // each pixel is a 16-bit word.
       auto* pixel = reinterpret_cast<std::uint16_t*>(framebuffer_ + y * line_length_ + x * 2);
       *pixel = on ? color : background;
     }

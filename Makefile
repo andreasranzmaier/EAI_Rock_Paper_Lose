@@ -18,9 +18,7 @@ TFLITE_READY := $(TFLITE_SRC_DIR)/.source-ready
 BUILD_DIR_STAMP := $(BUILD_DIR)/.dir-stamp
 CPP_SOURCES := $(shell find src -type f \( -name '*.cpp' -o -name '*.h' \) 2>/dev/null)
 
-COLLECT_BINARY := $(BUILD_DIR)/collect_data
-
-.PHONY: all tflite build collect provision-pi console clean
+.PHONY: all tflite build provision-pi console clean
 
 all: build
 
@@ -43,18 +41,6 @@ $(APP_BINARY): CMakeLists.txt toolchains/aarch64.cmake $(CPP_SOURCES) $(TFLITE_R
 	cmake --build "$(BUILD_DIR)" --parallel "$(BUILD_JOBS)" --target "$(APP_NAME)"
 
 build: $(APP_BINARY)
-
-# Cross-compile the data-collection tool. Camera only - does not need the
-# TFLite source tree, so this works without running `make tflite` first.
-collect: | $(BUILD_DIR_STAMP)
-	cmake -S . -B "$(BUILD_DIR)" -G Ninja \
-	  -DCMAKE_TOOLCHAIN_FILE="$(abspath toolchains/aarch64.cmake)" \
-	  -DCMAKE_BUILD_TYPE=Release \
-	  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-	  -DAPP_NAME="$(APP_NAME)"
-	cmake --build "$(BUILD_DIR)" --parallel "$(BUILD_JOBS)" --target collect_data
-	@echo "Built $(COLLECT_BINARY) - copy it to the Pi and run e.g.:"
-	@echo "  ./collect_data --class rock --count 400"
 
 provision-pi:
 	bash scripts/provision_pi.sh

@@ -67,6 +67,11 @@ constexpr int kShowChoiceMs        = 2000;  // show the Pi's pick for 2 s
 constexpr int kShowResultMs        = 1500;  // green/red full screen after the pick
 constexpr int kBetweenRoundsMs     = 800;
 
+// How long to sleep between camera polls when no new frame is available.
+// Short enough not to add visible latency, long enough that the loop doesn't
+// burn CPU spinning on currentFrame() between camera captures.
+constexpr int kFramePollIntervalMs = 5;
+
 // Assignment constraints (Project_EAI.pdf):
 //   - all .tflite model files combined must fit in 100 MB
 //   - the application must run at >= 30 inferences/sec
@@ -80,7 +85,7 @@ void HandleSignal(int) { g_shutdown = true; }
 struct Options {
   std::string model_path = "gesture.tflite";
   std::string labels_path;            // empty -> derive "labels.txt" next to the model
-  std::string accessory_config_path;  // empty -> derive "accessory.conf" next to the model
+  std::string accessory_config_path;  // empty -> "accessory.conf" in the current directory
   bool use_sensehat = true;
   bool use_accessory = true;
 };
@@ -116,6 +121,21 @@ std::string SiblingPath(const std::string& model_path, const std::string& name) 
   const auto slash = model_path.find_last_of('/');
   if (slash == std::string::npos) return name;
   return model_path.substr(0, slash + 1) + name;
+}
+
+// Returns the camera's most recent frame iff it is newer than last_seq and
+// large enough to feed the model; nullptr otherwise. Used by every camera
+// polling loop in the game so they all dedupe and size-check the same way.
+// The caller is responsible for sleeping/retrying when this returns null.
+std::shared_ptr<const rpicam::RgbFrame> FreshFrame(
+    const rpicam::RpiCameraCapture& camera,
+    std::uint64_t last_seq,
+    std::size_t min_bytes) {
+  auto frame = camera.currentFrame();
+  if (!frame || frame->sequence == last_seq || frame->rgb.size() < min_bytes) {
+    return nullptr;
+  }
+  return frame;
 }
 
 bool LoadLabels(const std::string& path, std::vector<std::string>* labels) {
@@ -199,19 +219,22 @@ RoundReading ReadStableRound(const rpicam::RpiCameraCapture& camera,
   };
 
   while (!g_shutdown && std::chrono::steady_clock::now() < deadline) {
-    std::shared_ptr<const rpicam::RgbFrame> frame = camera.currentFrame();
-    if (!frame || frame->sequence == last_seq || frame->rgb.size() < expected) {
-      SleepMs(5);
+    // --- 1. fetch a fresh frame (skip duplicates / undersized buffers) ---
+    auto frame = FreshFrame(camera, last_seq, expected);
+    if (!frame) {
+      SleepMs(kFramePollIntervalMs);
       continue;
     }
     last_seq = frame->sequence;
 
+    // --- 2. accessory check: cheap HSV mask + count, same frame as the model ---
     if (accessory) {
       reading.accessory =
           accessory->Check(frame->rgb.data(), classifier->input_width(),
                            classifier->input_height());
     }
 
+    // --- 3. classify, timing the call so the perf log can report inf/s + ms ---
     const auto t_classify_start = std::chrono::steady_clock::now();
     const ClassifyResult r = classifier->Classify(frame->rgb.data(), frame->rgb.size());
     const auto classify_ns = static_cast<std::uint64_t>(
@@ -220,22 +243,29 @@ RoundReading ReadStableRound(const rpicam::RpiCameraCapture& camera,
     classify_ns_sum += classify_ns;
     if (classify_ns > classify_ns_max) classify_ns_max = classify_ns;
     ++inferences;
-    const int game = (r.index >= 0 && r.index < static_cast<int>(game_idx_for_model.size()))
-                         ? game_idx_for_model[r.index] : -1;
+
+    // --- 4. translate model output -> game-side gesture, gate on confidence ---
+    const int game =
+        (r.index >= 0 && r.index < static_cast<int>(game_idx_for_model.size()))
+            ? game_idx_for_model[r.index] : -1;
     const bool confident = (r.confidence >= kConfidenceThresh) && (game >= 0);
 
     const std::string& cls_name =
-        (r.index >= 0 && r.index < static_cast<int>(labels.size())) ? labels[r.index] : std::string("?");
+        (r.index >= 0 && r.index < static_cast<int>(labels.size()))
+            ? labels[r.index] : std::string("?");
     std::cerr << "  [frame " << last_seq << "] argmax=" << cls_name
               << "(" << r.confidence << ")"
               << " window=" << window.size() << "/" << kWindowSize
-              << (accessory ? std::string(" accessory_px=") + std::to_string(reading.accessory.pixel_count) : std::string(""))
+              << (accessory ? std::string(" accessory_px=") +
+                                  std::to_string(reading.accessory.pixel_count)
+                            : std::string(""))
               << "\n";
 
     // Skip - don't reset - on low confidence so a single noisy frame does
     // not undo the prior good reads in the window.
     if (!confident) continue;
 
+    // --- 5. slide the window and accept once the mode hits kMinAgreeing ---
     window.push_back(game);
     if (static_cast<int>(window.size()) > kWindowSize) window.pop_front();
     if (static_cast<int>(window.size()) < kWindowSize) continue;
@@ -325,12 +355,12 @@ bool CalibrateAccessory(const rpicam::RpiCameraCapture& camera,
                         int width, int height) {
   std::cout << "Calibrating accessory baseline ("
             << accessory->config().calibration_frames << " frames)...\n";
-  uint64_t last_seq = 0;
+  std::uint64_t last_seq = 0;
   const std::size_t expected = static_cast<std::size_t>(width) * height * 3u;
   while (!g_shutdown && !accessory->calibrated()) {
-    std::shared_ptr<const rpicam::RgbFrame> frame = camera.currentFrame();
-    if (!frame || frame->sequence == last_seq || frame->rgb.size() < expected) {
-      SleepMs(5);
+    auto frame = FreshFrame(camera, last_seq, expected);
+    if (!frame) {
+      SleepMs(kFramePollIntervalMs);
       continue;
     }
     last_seq = frame->sequence;

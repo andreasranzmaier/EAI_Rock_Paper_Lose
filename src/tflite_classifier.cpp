@@ -53,8 +53,8 @@ TfliteClassifier::TfliteClassifier(const std::string& model_path) {
   }
   in_h_ = in->dims->data[1];
   in_w_ = in->dims->data[2];
-  in_c_ = in->dims->data[3];
-  if (in_c_ != 3) {
+  const int in_c = in->dims->data[3];
+  if (in_c != 3) {
     error_ = "Expected a 3-channel (RGB) input tensor.";
     return;
   }
