@@ -66,18 +66,57 @@ Every frame is logged as
 
 `AccessoryDetector` (`src/accessory_detector.{h,cpp}`) converts each RGB
 frame to HSV, masks pixels inside a configurable hue/saturation/value range,
-and counts them. On startup it averages this count across
-`calibration_frames` (default 60) frames to get a baseline; thereafter a
-frame is treated as "accessory present" when its count exceeds
-`baseline × threshold_multiplier` (default 1.25).
+and counts them. A frame is treated as "accessory present" when that count
+exceeds `baseline × threshold_multiplier` (default 1.25).
 
-Bounds and timing are loaded from `accessory.conf` (next to the binary by
-default; overridable with `--accessory-config`). Defaults target a pink
-accessory; re-tune in the file - no rebuild needed.
+Bounds and timing are loaded from `accessory.conf`. The path defaults to
+`accessory.conf` in the working directory (so launching from `~/rps-project/`
+picks up the file shipped next to the binary); override with
+`--accessory-config <path>`. Defaults target a pink accessory; re-tune in
+the file - no rebuild needed.
 
 `--no-accessory` skips both calibration and the per-frame check and falls
 back to a uniform-random Pi pick (useful for A/B comparing the rigging
 against a fair game without changing the build).
+
+### Calibration phase
+
+Before the first round, `CalibrateAccessory()` in `src/main.cpp` pulls
+camera frames into `AccessoryDetector::Calibrate()` until
+`calibration_frames` (default 60) have been processed, then averages the
+in-range pixel counts to set the baseline. Two implications:
+
+- The scene during these 60 frames must be **empty of the accessory** so
+  the baseline reflects ambient noise, not the rigging colour.
+- The baseline is fixed for the rest of the session. Lighting drift means
+  re-running the binary; there is no online recalibration.
+
+The phase ends with a single log line:
+
+```
+Accessory baseline = <n> px (threshold = <n * threshold_multiplier> px).
+```
+
+Use this together with the per-frame `accessory_px=<n>` line later (printed
+on stderr during each gesture-read window) to verify the rigging is
+triggering as intended.
+
+### Tuning the HSV bounds
+
+OpenCV's HSV uses **hue 0-179** (half-degrees, packed into a `uint8`) and
+**sat / val 0-255**. A common mistake is to copy hue values quoted in
+degrees (0-360) from a colour picker - those are out of range and
+`cv::inRange` will silently return an all-zero mask, leaving the rigging
+inert. Halve the degree value to convert.
+
+A practical tuning loop:
+
+1. Run the binary with an empty scene. The baseline log should be a small
+   number (low tens of pixels). If it's already thousands, the range is
+   catching the background - tighten it.
+2. Hold the accessory in frame and watch the per-frame `accessory_px=`
+   number. It should comfortably exceed the printed threshold.
+3. Edit `accessory.conf`, restart, repeat.
 
 ## Sense HAT output
 
@@ -125,7 +164,7 @@ representative of the rate the requirement actually targets.
 
 - Per-frame classifier line on stderr (see "Stability gate" above) - pipe
   through `tee` to keep a transcript.
-- Startup logs `Accessory baseline = <n> px (threshold = <m> px)`; useful
-  when re-tuning the HSV range. With an empty scene the baseline should be
-  small (low tens of pixels); with the accessory in frame, the round log's
-  `accessory_px=` should jump well above the printed threshold.
+- Accessory startup baseline + per-frame `accessory_px=<n>` (see "Tuning the
+  HSV bounds" above) - the primary lever when the rigging mis-fires.
+- `--no-accessory` skips the HSV check entirely so you can rule out the
+  detector and confirm classifier behaviour in isolation.

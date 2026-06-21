@@ -145,7 +145,7 @@ make clean               # nuke build/ and the TensorFlow source tree
 
 ```bash
 cd /Users/aranz/repos/EAI_Rock_Paper_Lose
-bash rps-project/sync.sh to                                                   # pushes rps-project/ incl. model/ + accessory.conf
+bash rps-project/sync.sh to                                       # pushes rps-project/ incl. model/ + accessory.conf
 rsync -avz build/rock_paper_lose name@IP:/home/name/rps-project/  # pushes the binary
 ```
 
@@ -162,17 +162,31 @@ pulling captured frames without spelling out the full rsync).
 ssh name@IP
 cd ~/rps-project
 ./rock_paper_lose --model model/model.tflite --labels model/labels.txt
-# --accessory-config accessory.conf   override default (./accessory.conf)
-# --no-accessory                      play fair (random Pi pick), no HSV check
-# --no-sensehat                       Sense HAT not attached
-# -h / --help                         usage
+# --accessory-config <path>   override the default ./accessory.conf
+# --no-accessory              play fair (random Pi pick), skip HSV check + calibration
+# --no-sensehat               Sense HAT not attached, run headless
+# -h / --help                 usage
 ```
 
-At startup the binary loads `accessory.conf`, captures
-`calibration_frames` (default 60) frames to set the baseline pixel count for
-the configured HSV range, then begins rounds. Re-tune the HSV bounds in
-`accessory.conf` if the accessory colour or lighting changes - see comments
-in that file.
+### First-run / calibration phase
+
+Before the first round, the binary runs a one-shot calibration pass on the
+accessory detector:
+
+```
+Accessory HSV bounds: H[140-170] S[50-255] V[50-255], calibration_frames=60, threshold_multiplier=1.25.
+Calibrating accessory baseline (60 frames)...
+Accessory baseline = 17.3 px (threshold = 21.625 px).
+```
+
+The 60 calibration frames must be of an **empty scene** - the average
+in-range pixel count becomes the baseline that "accessory present" is
+compared against later. The baseline is fixed for the run; lighting drift
+means restarting the binary. See "Calibrating the accessory HSV range"
+below if the baseline looks off.
+
+After calibration the game prints `Model file: ... MB / 100 MB budget` and
+`Perf target: >= 30 inferences/sec` and then begins playing.
 
 ### As a boot service
 
@@ -208,19 +222,35 @@ through `tee` to keep a transcript:
 ./rock_paper_lose --model model/model.tflite --labels model/labels.txt 2>&1 | tee /tmp/run.log
 ```
 
-### Calibrating the accessory HSV range
+### Tuning the accessory HSV range
 
-On startup the binary logs `Accessory baseline = <n> px (threshold = <m> px)`.
-A useful sanity check:
+On startup the binary logs
 
-- With an empty scene, the baseline should be small (low tens of pixels).
-  If it's already in the thousands, the HSV range is catching the
-  background - tighten it in `accessory.conf` and restart.
-- With the accessory in frame, the round log's `accessory_px=` should
-  comfortably exceed the printed threshold.
+```
+Accessory baseline = <n> px (threshold = <n * threshold_multiplier> px).
+```
 
-`--no-accessory` disables the detector entirely so you can compare against a
-fair (random) game.
+then prints `accessory_px=<n>` on every per-frame line during play. Use
+them together to sanity-check the rigging:
+
+- **Empty scene** baseline expected: low tens of pixels. If it's already in
+  the thousands the HSV range is catching the background - tighten the
+  bounds in `accessory.conf` and restart so calibration re-runs.
+- **Accessory in frame** `accessory_px=` expected: comfortably above the
+  printed threshold (e.g. 5-10x). If it barely clears, raise
+  `threshold_multiplier` or narrow the HSV range until decoys stop firing.
+- **Decoy item** (different colour band/ring) expected: stays at baseline.
+  If a decoy fires, your saturation / value bounds are probably too wide.
+
+Important: OpenCV's HSV channels are **hue 0-179** (half-degrees, packed
+into a `uint8`) and **sat / val 0-255**. Hue values quoted in degrees
+(0-360) from an external colour picker are out of range -
+`cv::inRange` will silently return an all-zero mask, so the rigging stays
+inert and the Pi always wins. Halve the degree value before putting it in
+`accessory.conf`.
+
+`--no-accessory` disables the detector entirely so you can compare against
+a fair (random) game while debugging.
 
 ---
 
