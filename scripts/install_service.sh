@@ -2,8 +2,8 @@
 # Install (or refresh) the rock_paper_lose systemd unit on the Pi.
 # Run *on the Pi*, after the binary + model + labels are deployed.
 #
-# Defaults match the layout that scripts/deploy_to_pi.sh + rps-project/sync.sh
-# produce on the Pi: the binary lives in INSTALL_DIR and the trained model from
+# Defaults match the layout that rps-project/sync.sh + the binary rsync produce
+# on the Pi: the binary lives in INSTALL_DIR and the trained model from
 # rps-project/model/ is rsynced into INSTALL_DIR/model/. Override via env vars
 # if your layout differs:
 #   INSTALL_DIR=/home/kit-23/rps-project

@@ -24,15 +24,15 @@ Add new data → retrain → deploy → run:
 ```bash
 # Pi:        capture more samples
 ssh name@IP
-cd ~/rps-project && python3 01_capture.py rock      # repeat for paper, scissors, garbage
+cd ~/rps-project && python3 01_capture.py rock      # repeat for paper, scissors
 
 # Mac:       pull frames + push everything else
 cd /Users/aranz/repos/EAI_Rock_Paper_Lose
 rsync -avz name@IP:/home/name/rps-project/images/raw/ rps-project/images/raw/
 
-# Container: process + train
+# Container: train
 cd /workspaces/EAI_Rock_Paper_Lose/rps-project
-python 02_process.py && python 03_train.py
+python 03_train.py
 
 # Container: rebuild C++ (only if src/ changed)
 cd /workspaces/EAI_Rock_Paper_Lose && make build
@@ -89,12 +89,13 @@ cd ~/rps-project
 python3 01_capture.py rock        # Ctrl+C when you've moved your hand enough
 python3 01_capture.py paper
 python3 01_capture.py scissors
-python3 01_capture.py garbage     # anything that's not a clean gesture
 ```
 
-Capture writes `images/raw/{timestamp}-{label}.jpeg` every ~2 s. Vary
-distance, angle, lighting, and which person is in frame - every group member
-should contribute so the model generalises across skin tones and hand sizes.
+Capture writes `images/raw/{timestamp}-{label}.jpeg` at ~5 fps. Vary distance,
+angle, lighting, and which person is in frame - every group member should
+contribute so the model generalises across skin tones and hand sizes. There is
+no longer a "garbage" class; the sliding-window vote at inference time absorbs
+brief mis-reads.
 
 ### Pull frames back to the Mac
 
@@ -113,21 +114,20 @@ ls images/raw/ | awk -F- '{print $NF}' | sort | uniq -c
 
 ---
 
-## 3. Process + train
+## 3. Train
 
 In the devcontainer:
 
 ```bash
 cd /workspaces/EAI_Rock_Paper_Lose/rps-project
-python 02_process.py     # writes images/processed/ (96x72 grayscale + CLAHE + Otsu)
-python 03_train.py       # writes model/model.tflite, model/labels.txt, model/model.keras
+python 03_train.py       # writes model/model.tflite, model/labels.txt
 ```
 
-Optional sanity check on what the model is looking at:
-
-```bash
-python 04_gradcam.py     # writes gradcam_output.png
-```
+`03_train.py` resizes each raw frame to 160×160 RGB, oversamples to balance
+classes, fine-tunes MobileNetV3Small (`include_preprocessing=True` so
+normalisation is baked into the graph), and exports an int8-quantised TFLite
+file with softmax included in the model's output layer. There is no separate
+preprocessing step.
 
 ---
 
@@ -145,7 +145,7 @@ make clean               # nuke build/ and the TensorFlow source tree
 
 ```bash
 cd /Users/aranz/repos/EAI_Rock_Paper_Lose
-bash rps-project/sync.sh to                                                   # pushes rps-project/ incl. model/
+bash rps-project/sync.sh to                                                   # pushes rps-project/ incl. model/ + accessory.conf
 rsync -avz build/rock_paper_lose name@IP:/home/name/rps-project/  # pushes the binary
 ```
 
@@ -162,9 +162,17 @@ pulling captured frames without spelling out the full rsync).
 ssh name@IP
 cd ~/rps-project
 ./rock_paper_lose --model model/model.tflite --labels model/labels.txt
-# --no-sensehat        if the Sense HAT isn't attached
-# -h / --help          usage
+# --accessory-config accessory.conf   override default (./accessory.conf)
+# --no-accessory                      play fair (random Pi pick), no HSV check
+# --no-sensehat                       Sense HAT not attached
+# -h / --help                         usage
 ```
+
+At startup the binary loads `accessory.conf`, captures
+`calibration_frames` (default 60) frames to set the baseline pixel count for
+the configured HSV range, then begins rounds. Re-tune the HSV bounds in
+`accessory.conf` if the accessory colour or lighting changes - see comments
+in that file.
 
 ### As a boot service
 
@@ -192,33 +200,27 @@ sudo systemctl disable rock_paper_lose.service     # stop running on boot
 
 ### Per-frame classifier log
 
-The binary already prints one line per frame during the read window
-(`[frame N] argmax=... rps_best=... streak=...`). Pipe it through `tee`
-to keep a transcript:
+The binary prints one line per frame during the read window
+(`[frame N] argmax=<label>(<conf>) window=<k>/<W> accessory_px=<n>`). Pipe
+through `tee` to keep a transcript:
 
 ```bash
 ./rock_paper_lose --model model/model.tflite --labels model/labels.txt 2>&1 | tee /tmp/run.log
 ```
 
-### Dump what the model is seeing
+### Calibrating the accessory HSV range
 
-```bash
-# Pi:
-mkdir -p /tmp/dumps && rm -f /tmp/dumps/*.pgm
-env DUMP_FRAMES_DIR=/tmp/dumps ./rock_paper_lose \
-    --model model/model.tflite --labels model/labels.txt
-# Ctrl+C after a round, then:
-ls /tmp/dumps
-```
+On startup the binary logs `Accessory baseline = <n> px (threshold = <m> px)`.
+A useful sanity check:
 
-```bash
-# Mac:
-rsync -avz name@IP:/tmp/dumps/ ./inference-dumps/
-open inference-dumps/frame_*.pgm   # eyeball next to rps-project/images/processed/
-```
+- With an empty scene, the baseline should be small (low tens of pixels).
+  If it's already in the thousands, the HSV range is catching the
+  background - tighten it in `accessory.conf` and restart.
+- With the accessory in frame, the round log's `accessory_px=` should
+  comfortably exceed the printed threshold.
 
-Every 5th frame is written as a `.pgm` of exactly what the model received
-(post-CLAHE-Otsu, 96×72).
+`--no-accessory` disables the detector entirely so you can compare against a
+fair (random) game.
 
 ---
 
@@ -226,14 +228,13 @@ Every 5th frame is written as a `.pgm` of exactly what the model received
 
 ```
 rps-project/
-  01_capture.py       - record frames on the Pi
-  02_process.py       - grayscale + CLAHE + Otsu → images/processed/
-  03_train.py         - train CNN, export model/model.tflite + labels.txt
-  04_gradcam.py       - visualise what the model attends to
+  01_capture.py       - record frames on the Pi (5 fps, jpeg)
+  03_train.py         - fine-tune MobileNetV3Small, export model/model.tflite + labels.txt
+  accessory.conf      - HSV bounds + calibration params for the rigging detector
   sync.sh             - rsync rps-project/ to/from the Pi
   images/raw/         - captured frames (gitignored)
-  images/processed/   - preprocessed dataset (gitignored)
-  model/              - model.tflite, labels.txt, model.keras
+  images/processed/   - written by 03_train.py for inspection (gitignored)
+  model/              - model.tflite, labels.txt
 ```
 
 The C++ that runs on the Pi lives in `../src/` and is built via `make build`

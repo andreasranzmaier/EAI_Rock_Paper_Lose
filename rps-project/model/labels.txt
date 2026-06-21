@@ -1,4 +1,3 @@
-garbage
 paper
 rock
 scissors
