@@ -11,7 +11,7 @@ classes = sorted(set(p.stem.split("-")[-1] for p in files))
 label_map = {c: i for i, c in enumerate(classes)}
 print(f"Classes: {classes}  |  Images: {len(files)}")
 
-# Raw 0-255 values — the Rescaling layer in the model normalises them,
+# Raw 0-255 values - the Rescaling layer in the model normalises them,
 # matching what tflite_classifier.cpp feeds at inference time.
 X = np.array([cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) for p in files], dtype=np.float32)
 X = X[..., np.newaxis]  # (N, 72, 96, 1)

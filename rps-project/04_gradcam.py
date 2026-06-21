@@ -73,7 +73,7 @@ for col, (cls, path) in enumerate(sorted(samples.items())):
     axes[1, col].set_title(f"pred: {pred} ({probs.max():.0%})", fontsize=11)
     axes[1, col].axis("off")
 
-plt.suptitle(f"Grad-CAM — {last_conv.name} ({last_conv.filters} filters)", fontsize=13)
+plt.suptitle(f"Grad-CAM - {last_conv.name} ({last_conv.filters} filters)", fontsize=13)
 plt.tight_layout()
 plt.savefig("gradcam_output.png", dpi=150)
 print("Saved gradcam_output.png")

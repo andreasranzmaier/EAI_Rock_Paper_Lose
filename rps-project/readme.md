@@ -1,4 +1,4 @@
-# Rock-Paper-Lose — workflow
+# Rock-Paper-Lose - workflow
 
 Pi runs a rigged rock-paper-scissors game. The Python pipeline in this folder
 captures frames, trains a TFLite gesture model, and the cross-compiled C++
@@ -6,10 +6,10 @@ binary (built from `../src/`) plays the game on the Pi.
 
 Two environments are involved:
 
-- **Devcontainer** (VS Code reopens this repo in the `.devcontainer/` image) —
+- **Devcontainer** (VS Code reopens this repo in the `.devcontainer/` image) -
   cross-compiles the C++ for aarch64 and runs the Python training pipeline.
   Cannot reach the Pi over the network.
-- **Mac host** — runs all `rsync` / `ssh` to the Pi. The repo is bind-mounted
+- **Mac host** - runs all `rsync` / `ssh` to the Pi. The repo is bind-mounted
   into the container, so build artifacts are visible in both.
 
 Pi connection settings live in `.env` at the repo root (`PI_USER`, `PI_HOST`,
@@ -93,7 +93,7 @@ python3 01_capture.py garbage     # anything that's not a clean gesture
 ```
 
 Capture writes `images/raw/{timestamp}-{label}.jpeg` every ~2 s. Vary
-distance, angle, lighting, and which person is in frame — every group member
+distance, angle, lighting, and which person is in frame - every group member
 should contribute so the model generalises across skin tones and hand sizes.
 
 ### Pull frames back to the Mac
@@ -226,14 +226,14 @@ Every 5th frame is written as a `.pgm` of exactly what the model received
 
 ```
 rps-project/
-  01_capture.py       — record frames on the Pi
-  02_process.py       — grayscale + CLAHE + Otsu → images/processed/
-  03_train.py         — train CNN, export model/model.tflite + labels.txt
-  04_gradcam.py       — visualise what the model attends to
-  sync.sh             — rsync rps-project/ to/from the Pi
-  images/raw/         — captured frames (gitignored)
-  images/processed/   — preprocessed dataset (gitignored)
-  model/              — model.tflite, labels.txt, model.keras
+  01_capture.py       - record frames on the Pi
+  02_process.py       - grayscale + CLAHE + Otsu → images/processed/
+  03_train.py         - train CNN, export model/model.tflite + labels.txt
+  04_gradcam.py       - visualise what the model attends to
+  sync.sh             - rsync rps-project/ to/from the Pi
+  images/raw/         - captured frames (gitignored)
+  images/processed/   - preprocessed dataset (gitignored)
+  model/              - model.tflite, labels.txt, model.keras
 ```
 
 The C++ that runs on the Pi lives in `../src/` and is built via `make build`
