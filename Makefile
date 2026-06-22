@@ -34,7 +34,7 @@ tflite: $(TFLITE_READY)
 $(APP_BINARY): CMakeLists.txt toolchains/aarch64.cmake $(CPP_SOURCES) $(TFLITE_READY) | $(BUILD_DIR_STAMP)
 	cmake -S . -B "$(BUILD_DIR)" -G Ninja \
 	  -DCMAKE_TOOLCHAIN_FILE="$(abspath toolchains/aarch64.cmake)" \
-	  -DCMAKE_BUILD_TYPE=Debug \
+	  -DCMAKE_BUILD_TYPE=Release \
 	  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
 	  -DAPP_NAME="$(APP_NAME)" \
 	  -DTFLITE_SRC_DIR="$(abspath $(TFLITE_SRC_DIR))"

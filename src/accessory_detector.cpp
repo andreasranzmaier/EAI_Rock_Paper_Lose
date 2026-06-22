@@ -90,6 +90,7 @@ bool AccessoryDetector::LoadConfig(const std::string& path, std::string* error) 
     else if (key == "val_max" && ParseInt(value, &iv))                  config_.val_max = iv;
     else if (key == "calibration_frames" && ParseInt(value, &iv))       config_.calibration_frames = iv;
     else if (key == "threshold_multiplier" && ParseFloat(value, &fv))   config_.threshold_multiplier = fv;
+    else if (key == "min_threshold" && ParseInt(value, &iv))            config_.min_threshold = iv;
     else                                                                ok = false;
 
     if (!ok) {
@@ -143,8 +144,10 @@ AccessoryDetector::Check(const std::uint8_t* rgb, int width, int height) const {
   CheckResult r;
   r.pixel_count = CountInRange(rgb, width, height);
   if (calibrated()) {
-    r.present = static_cast<float>(r.pixel_count) >
-                baseline_ * config_.threshold_multiplier;
+    const float scaled = baseline_ * config_.threshold_multiplier;
+    const float floor = static_cast<float>(config_.min_threshold);
+    const float threshold = scaled > floor ? scaled : floor;
+    r.present = static_cast<float>(r.pixel_count) > threshold;
   }
   return r;
 }

@@ -202,11 +202,19 @@ RoundReading ReadStableRound(const rpicam::RpiCameraCapture& camera,
   int inferences = 0;
   std::uint64_t classify_ns_sum = 0;
   std::uint64_t classify_ns_max = 0;
+  // Smooth the accessory decision over the same frames the gesture vote
+  // sees, so a single glitched frame can't flip the rigging.
+  int accessory_checks = 0;
+  int accessory_present_count = 0;
+  auto FinalizeAccessory = [&]() {
+    if (!accessory || accessory_checks == 0) return;
+    reading.accessory.present = accessory_present_count * 2 > accessory_checks;
+  };
   auto LogPerf = [&]() {
     const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - window_start).count();
     if (inferences == 0 || elapsed_ms <= 0) return;
-    const double inf_per_sec = inferences * 1000.0 / elapsed_ms;
+    const double inf_per_sec = inferences * 1000.0 / elapsed_ms; // TODO not accurate because it time the whole inference process instead of just measuring the model 
     const double avg_ms = (classify_ns_sum / 1e6) / inferences;
     const double max_ms = classify_ns_max / 1e6;
     const char* tag = (inf_per_sec >= kTargetFps) ? "[perf]" : "[perf-warn]";
@@ -232,6 +240,8 @@ RoundReading ReadStableRound(const rpicam::RpiCameraCapture& camera,
       reading.accessory =
           accessory->Check(frame->rgb.data(), classifier->input_width(),
                            classifier->input_height());
+      ++accessory_checks;
+      if (reading.accessory.present) ++accessory_present_count;
     }
 
     // --- 3. classify, timing the call so the perf log can report inf/s + ms ---
@@ -276,10 +286,12 @@ RoundReading ReadStableRound(const rpicam::RpiCameraCapture& camera,
     for (int g = 1; g < kNumGestures; ++g) if (votes[g] > votes[winner]) winner = g;
     if (votes[winner] >= kMinAgreeing) {
       reading.gesture = winner;
+      FinalizeAccessory();
       LogPerf();
       return reading;
     }
   }
+  FinalizeAccessory();
   LogPerf();
   return reading;
 }
@@ -443,7 +455,8 @@ int main(int argc, char** argv) {
                 << "] S[" << c.sat_min << "-" << c.sat_max
                 << "] V[" << c.val_min << "-" << c.val_max
                 << "], calibration_frames=" << c.calibration_frames
-                << ", threshold_multiplier=" << c.threshold_multiplier << ".\n";
+                << ", threshold_multiplier=" << c.threshold_multiplier
+                << ", min_threshold=" << c.min_threshold << ".\n";
     }
   } else {
     std::cout << "Accessory rigging disabled - playing fair.\n";

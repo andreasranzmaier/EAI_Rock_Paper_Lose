@@ -35,8 +35,11 @@ class AccessoryDetector {
     // How many frames to average over when establishing the baseline.
     int calibration_frames = 60;
     // A frame is "accessory present" when its in-range pixel count exceeds
-    // baseline * this multiplier. > 1.0 leaves headroom for ambient noise.
+    // max(baseline * multiplier, min_threshold). The multiplier scales with
+    // the empty-scene noise floor; min_threshold is an absolute pixel floor
+    // that prevents tiny baselines from making a few stray pixels trigger.
     float threshold_multiplier = 1.25f;
+    int min_threshold = 0;
   };
 
   AccessoryDetector() = default;
